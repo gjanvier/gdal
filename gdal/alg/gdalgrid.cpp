@@ -56,6 +56,8 @@ CPL_CVSID("$Id$")
 
 constexpr double TO_RADIANS = M_PI / 180.0;
 
+static GDALTriangulation* delaunayCache = nullptr;
+
 /************************************************************************/
 /*                        GDALGridGetPointBounds()                      */
 /************************************************************************/
@@ -2027,15 +2029,23 @@ GDALGridContextCreate( GDALGridAlgorithm eAlgorithm, const void *poOptions,
 
     if( eAlgorithm == GGA_Linear )
     {
-        psContext->sExtraParameters.psTriangulation =
-                GDALTriangulationCreateDelaunay(nPoints, padfX, padfY);
-        if( psContext->sExtraParameters.psTriangulation == nullptr )
-        {
-            GDALGridContextFree(psContext);
-            return nullptr;
+        // Cache result in case we compute several layers with the same coordinates
+        if (delaunayCache != nullptr) {
+            psContext->sExtraParameters.psTriangulation = delaunayCache;
         }
-        GDALTriangulationComputeBarycentricCoefficients(
-            psContext->sExtraParameters.psTriangulation, padfX, padfY );
+        else {
+            psContext->sExtraParameters.psTriangulation =
+                GDALTriangulationCreateDelaunay(nPoints, padfX, padfY);
+            if( psContext->sExtraParameters.psTriangulation == nullptr )
+            {
+                GDALGridContextFree(psContext);
+                return nullptr;
+            }
+            GDALTriangulationComputeBarycentricCoefficients(
+                psContext->sExtraParameters.psTriangulation, padfX, padfY );
+
+            delaunayCache = psContext->sExtraParameters.psTriangulation;
+        }
     }
 
 /* -------------------------------------------------------------------- */
@@ -2143,8 +2153,9 @@ void GDALGridContextFree( GDALGridContext* psContext )
         VSIFreeAligned(psContext->sExtraParameters.pafX);
         VSIFreeAligned(psContext->sExtraParameters.pafY);
         VSIFreeAligned(psContext->sExtraParameters.pafZ);
-        if( psContext->sExtraParameters.psTriangulation )
-            GDALTriangulationFree(psContext->sExtraParameters.psTriangulation);
+        // Keep cache
+        //if( psContext->sExtraParameters.psTriangulation )
+        //    GDALTriangulationFree(psContext->sExtraParameters.psTriangulation);
         delete psContext->poWorkerThreadPool;
         CPLFree(psContext);
     }
