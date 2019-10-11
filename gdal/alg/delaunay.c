@@ -1,4 +1,5 @@
 /******************************************************************************
+ * $Id$
  *
  * Project:  GDAL algorithms
  * Purpose:  Delaunay triangulation
@@ -49,7 +50,7 @@
 #include <ctype.h>
 #include <math.h>
 
-CPL_CVSID("$Id$")
+CPL_CVSID("$Id$");
 
 #if defined(INTERNAL_QHULL) || defined(EXTERNAL_QHULL)
 #define HAVE_INTERNAL_OR_EXTERNAL_QHULL 1
@@ -327,25 +328,12 @@ int  GDALTriangulationComputeBarycentricCoefficients(GDALTriangulation* psDT,
         double dfY3 = padfY[psFacet->anVertexIdx[2]];
         /* See https://en.wikipedia.org/wiki/Barycentric_coordinate_system */
         double dfDenom = (dfY2 - dfY3) * (dfX1 - dfX3) + (dfX3 - dfX2) * (dfY1 - dfY3);
-        if( fabs(dfDenom) < 1e-5 )
-        {
-            // Degenerate triangle
-            psCoeffs->dfMul1X = 0.0;
-            psCoeffs->dfMul1Y = 0.0;
-            psCoeffs->dfMul2X = 0.0;
-            psCoeffs->dfMul2Y = 0.0;
-            psCoeffs->dfCstX = 0.0;
-            psCoeffs->dfCstY = 0.0;
-        }
-        else
-        {
-            psCoeffs->dfMul1X = (dfY2  - dfY3) / dfDenom;
-            psCoeffs->dfMul1Y = (dfX3  - dfX2) / dfDenom;
-            psCoeffs->dfMul2X = (dfY3  - dfY1) / dfDenom;
-            psCoeffs->dfMul2Y = (dfX1  - dfX3) / dfDenom;
-            psCoeffs->dfCstX = dfX3;
-            psCoeffs->dfCstY = dfY3;
-        }
+        psCoeffs->dfMul1X = (dfY2  - dfY3) / dfDenom;
+        psCoeffs->dfMul1Y = (dfX3  - dfX2) / dfDenom;
+        psCoeffs->dfMul2X = (dfY3  - dfY1) / dfDenom;
+        psCoeffs->dfMul2Y = (dfX1  - dfX3) / dfDenom;
+        psCoeffs->dfCstX = dfX3;
+        psCoeffs->dfCstY = dfY3;
     }
     return TRUE;
 }
@@ -415,8 +403,7 @@ int  GDALTriangulationComputeBarycentricCoordinates(const GDALTriangulation* psD
  * @param psDT triangulation.
  * @param dfX x coordinate of the point.
  * @param dfY y coordinate of the point.
- * @param panOutputFacetIdx (output) pointer to the index of the triangle,
- *                          or -1 in case of failure.
+ * @param panOutputFacetIdx (output) pointer to the index of the triangle.
  *
  * @return index >= 0 of the triangle in case of success, -1 otherwise.
  *
@@ -441,12 +428,6 @@ int GDALTriangulationFindFacetBruteForce(const GDALTriangulation* psDT,
         double l1, l2, l3;
         const GDALTriBarycentricCoefficients* psCoeffs =
                                     &(psDT->pasFacetCoefficients[nFacetIdx]);
-        if( psCoeffs->dfMul1X == 0.0 && psCoeffs->dfMul2X == 0.0 &&
-            psCoeffs->dfMul1Y == 0.0 && psCoeffs->dfMul2Y == 0.0 )
-        {
-            // Degenerate triangle
-            continue;
-        }
         l1 = BARYC_COORD_L1(psCoeffs, dfX, dfY);
         if( l1 < -EPS )
         {
@@ -507,13 +488,11 @@ int GDALTriangulationFindFacetBruteForce(const GDALTriangulation* psDT,
  *
  * @param psDT triangulation.
  * @param nFacetIdx index of first triangle to start with.
- *                  Must be >= 0 && < psDT->nFacets
  * @param dfX x coordinate of the point.
  * @param dfY y coordinate of the point.
- * @param panOutputFacetIdx (output) pointer to the index of the triangle,
- *                          or -1 in case of failure.
+ * @param panOutputFacetIdx (output) pointer to the index of the triangle.
  *
- * @return TRUE in case of success, FALSE otherwise.
+ * @return TRUE in case of success, -1 otherwise.
  *
  * @since GDAL 2.1
  */
@@ -524,9 +503,6 @@ int GDALTriangulationFindFacetDirected(const GDALTriangulation* psDT,
                                        double dfY,
                                        int* panOutputFacetIdx)
 {
-#ifdef DEBUG_VERBOSE
-    const int nFacetIdxInitial = nFacetIdx;
-#endif
     int k, nIterMax;
     *panOutputFacetIdx = -1;
     if( psDT->pasFacetCoefficients == NULL )
@@ -545,22 +521,12 @@ int GDALTriangulationFindFacetDirected(const GDALTriangulation* psDT,
         const GDALTriFacet* psFacet = &(psDT->pasFacets[nFacetIdx]);
         const GDALTriBarycentricCoefficients* psCoeffs =
                                 &(psDT->pasFacetCoefficients[nFacetIdx]);
-        if( psCoeffs->dfMul1X == 0.0 && psCoeffs->dfMul2X == 0.0 &&
-            psCoeffs->dfMul1Y == 0.0 && psCoeffs->dfMul2Y == 0.0 )
-        {
-            // Degenerate triangle
-            break;
-        }
         l1 = BARYC_COORD_L1(psCoeffs, dfX, dfY);
         if( l1 < -EPS )
         {
             int neighbor = psFacet->anNeighborIdx[0];
             if( neighbor < 0 )
             {
-#ifdef DEBUG_VERBOSE
-                CPLDebug("GDAL", "Outside %d in %d iters (initial = %d)",
-                         nFacetIdx, k, nFacetIdxInitial);
-#endif
                 *panOutputFacetIdx = nFacetIdx;
                 return FALSE;
             }
@@ -576,10 +542,6 @@ int GDALTriangulationFindFacetDirected(const GDALTriangulation* psDT,
             int neighbor = psFacet->anNeighborIdx[1];
             if( neighbor < 0 )
             {
-#ifdef DEBUG_VERBOSE
-                CPLDebug("GDAL", "Outside %d in %d iters (initial = %d)",
-                         nFacetIdx, k, nFacetIdxInitial);
-#endif
                 *panOutputFacetIdx = nFacetIdx;
                 return FALSE;
             }
@@ -595,10 +557,6 @@ int GDALTriangulationFindFacetDirected(const GDALTriangulation* psDT,
             int neighbor = psFacet->anNeighborIdx[2];
             if( neighbor < 0 )
             {
-#ifdef DEBUG_VERBOSE
-                CPLDebug("GDAL", "Outside %d in %d iters (initial = %d)",
-                         nFacetIdx, k, nFacetIdxInitial);
-#endif
                 *panOutputFacetIdx = nFacetIdx;
                 return FALSE;
             }
@@ -610,10 +568,6 @@ int GDALTriangulationFindFacetDirected(const GDALTriangulation* psDT,
 
         if( bMatch )
         {
-#ifdef DEBUG_VERBOSE
-            CPLDebug("GDAL", "Inside %d in %d iters (initial = %d)",
-                     nFacetIdx, k, nFacetIdxInitial);
-#endif
             *panOutputFacetIdx = nFacetIdx;
             return TRUE;
         }
